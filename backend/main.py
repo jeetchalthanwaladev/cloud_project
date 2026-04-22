@@ -15,7 +15,7 @@ from pydantic import BaseModel
 app = FastAPI(title="Learning Platform API")
 
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
-AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+AWS_REGION = os.getenv("AWS_REGION", "eu-north-1")
 TABLE_NAME = os.getenv("DYNAMO_TABLE", "Courses")
 
 # -------------------------
