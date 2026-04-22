@@ -192,7 +192,7 @@ def signup(user: UserCreate):
         raise HTTPException(status_code=500, detail=str(e))
     
 
-    @app.post("/login")
+@app.post("/login")
 def login(data: UserLogin):
     try:
         response = users_table.get_item(Key={"email": data.email})
