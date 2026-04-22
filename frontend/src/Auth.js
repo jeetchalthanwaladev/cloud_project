@@ -1,8 +1,5 @@
 import React, { useState } from 'react';
 
-// In-memory user store (demo only — no localStorage, no sessionStorage)
-let registeredUsers = [];
-
 const Auth = ({ onLoginSuccess }) => {
   const [view, setView] = useState('login');
   const [email, setEmail] = useState('');
@@ -22,7 +19,7 @@ const Auth = ({ onLoginSuccess }) => {
     clearMessages();
   };
 
-  const handleSignup = (e) => {
+  const handleSignup = async (e) => {
     e.preventDefault();
     clearMessages();
 
@@ -31,18 +28,31 @@ const Auth = ({ onLoginSuccess }) => {
       return;
     }
 
-    if (registeredUsers.find((u) => u.email === email)) {
-      setError('An account with this email already exists');
-      return;
+    try {
+      const res = await fetch(`${process.env.REACT_APP_API_URL || ''}/signup`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ name, email, password, role }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.detail || 'Signup failed');
+        return;
+      }
+
+      setSuccess('Account created! You can now login.');
+      setTimeout(() => switchView('login'), 1500);
+    } catch (err) {
+      console.error(err);
+      setError('Network error. Please try again later.');
     }
-
-    registeredUsers.push({ name, email, password, role });
-
-    setSuccess('Account created! You can now login.');
-    setTimeout(() => switchView('login'), 1500);
   };
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
     clearMessages();
 
@@ -51,29 +61,33 @@ const Auth = ({ onLoginSuccess }) => {
       return;
     }
 
-    const user = registeredUsers.find(
-      (u) => u.email === email && u.password === password
-    );
+    try {
+      const res = await fetch(`${process.env.REACT_APP_API_URL || ''}/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
+      });
 
-    if (user) {
-      onLoginSuccess(user);
-    } else if (email === 'demo@learn.com' && password === 'demo123') {
-      onLoginSuccess({ name: 'Demo Faculty', email: 'demo@learn.com', role: 'faculty' });
-    } else {
-      setError('Invalid credentials. Sign up first or use demo@learn.com / demo123');
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.detail || 'Invalid credentials');
+        return;
+      }
+
+      onLoginSuccess(data.user);
+    } catch (err) {
+      console.error(err);
+      setError('Network error. Please try again later.');
     }
   };
 
   const handleForgot = (e) => {
     e.preventDefault();
     clearMessages();
-
-    const exists = registeredUsers.find((u) => u.email === email) || email === 'demo@learn.com';
-    if (exists) {
-      setSuccess('Password reset link sent (demo)');
-    } else {
-      setError('Email not found');
-    }
+    setError('Password reset is not configured at backend yet.');
   };
 
   return (

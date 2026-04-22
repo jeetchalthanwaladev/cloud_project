@@ -2,12 +2,12 @@ import os
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
-from passlib.context import CryptContext
 
 import boto3
 from boto3.dynamodb.conditions import Attr
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from passlib.context import CryptContext
 from pydantic import BaseModel
 
 # -------------------------
@@ -18,6 +18,8 @@ app = FastAPI(title="Learning Platform API")
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 AWS_REGION = os.getenv("AWS_REGION", "eu-north-1")
 TABLE_NAME = os.getenv("DYNAMO_TABLE", "Courses")
+USERS_TABLE_NAME = os.getenv("USERS_TABLE", "Users")
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # -------------------------
 # CORS
@@ -35,20 +37,8 @@ app.add_middleware(
 # -------------------------
 dynamodb = boto3.resource("dynamodb", region_name=AWS_REGION)
 table = dynamodb.Table(TABLE_NAME)
+users_table = dynamodb.Table(USERS_TABLE_NAME)
 
-# -------------------------
-# AUTH UTILS
-# -------------------------
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-def hash_password(password):
-    return pwd_context.hash(password)
-
-def verify_password(password, hashed):
-    return pwd_context.verify(password, hashed)
-
-# Users table
-users_table = dynamodb.Table("Users")
 
 # -------------------------
 # MODELS
@@ -64,15 +54,17 @@ class CourseUpdate(BaseModel):
     video_url: Optional[str] = None
 
 
-class UserCreate(BaseModel):
+class UserSignup(BaseModel):
     name: str
     email: str
     password: str
     role: str
 
+
 class UserLogin(BaseModel):
     email: str
     password: str
+
 
 # -------------------------
 # ROUTES
@@ -85,6 +77,54 @@ def home():
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.post("/signup")
+def signup(user: UserSignup):
+    try:
+        response = users_table.get_item(Key={"email": user.email})
+        if "Item" in response:
+            raise HTTPException(status_code=400, detail="User already exists")
+
+        hashed_password = pwd_context.hash(user.password)
+        item = {
+            "email": user.email,
+            "name": user.name,
+            "password": hashed_password,
+            "role": user.role,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        users_table.put_item(Item=item)
+        return {"message": "Account created successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/login")
+def login(user: UserLogin):
+    try:
+        response = users_table.get_item(Key={"email": user.email})
+        if "Item" not in response:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        item = response["Item"]
+        if not pwd_context.verify(user.password, item["password"]):
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+
+        return {
+            "message": "Login successful",
+            "user": {
+                "email": item["email"],
+                "name": item.get("name", ""),
+                "role": item.get("role", "student")
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/courses")
@@ -164,55 +204,5 @@ def delete_course(course_id: str):
         return {"message": "Course deleted successfully"}
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/signup")
-def signup(user: UserCreate):
-    try:
-        existing = users_table.get_item(Key={"email": user.email})
-
-        if "Item" in existing:
-            raise HTTPException(status_code=400, detail="User already exists")
-
-        new_user = {
-            "email": user.email,
-            "name": user.name,
-            "password": hash_password(user.password),
-            "role": user.role,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
-
-        users_table.put_item(Item=new_user)
-
-        return {"message": "User created successfully"}
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    
-
-@app.post("/login")
-def login(data: UserLogin):
-    try:
-        response = users_table.get_item(Key={"email": data.email})
-
-        if "Item" not in response:
-            raise HTTPException(status_code=404, detail="User not found")
-
-        user = response["Item"]
-
-        if not verify_password(data.password, user["password"]):
-            raise HTTPException(status_code=401, detail="Invalid password")
-
-        return {
-            "message": "Login successful",
-            "user": {
-                "email": user["email"],
-                "name": user["name"],
-                "role": user["role"],
-            }
-        }
-
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
