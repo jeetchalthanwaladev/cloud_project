@@ -2,6 +2,7 @@ import os
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
+from passlib.context import CryptContext
 
 import boto3
 from boto3.dynamodb.conditions import Attr
@@ -35,6 +36,19 @@ app.add_middleware(
 dynamodb = boto3.resource("dynamodb", region_name=AWS_REGION)
 table = dynamodb.Table(TABLE_NAME)
 
+# -------------------------
+# AUTH UTILS
+# -------------------------
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def hash_password(password):
+    return pwd_context.hash(password)
+
+def verify_password(password, hashed):
+    return pwd_context.verify(password, hashed)
+
+# Users table
+users_table = dynamodb.Table("Users")
 
 # -------------------------
 # MODELS
@@ -49,6 +63,16 @@ class CourseUpdate(BaseModel):
     title: Optional[str] = None
     video_url: Optional[str] = None
 
+
+class UserCreate(BaseModel):
+    name: str
+    email: str
+    password: str
+    role: str
+
+class UserLogin(BaseModel):
+    email: str
+    password: str
 
 # -------------------------
 # ROUTES
@@ -140,5 +164,55 @@ def delete_course(course_id: str):
         return {"message": "Course deleted successfully"}
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/signup")
+def signup(user: UserCreate):
+    try:
+        existing = users_table.get_item(Key={"email": user.email})
+
+        if "Item" in existing:
+            raise HTTPException(status_code=400, detail="User already exists")
+
+        new_user = {
+            "email": user.email,
+            "name": user.name,
+            "password": hash_password(user.password),
+            "role": user.role,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        users_table.put_item(Item=new_user)
+
+        return {"message": "User created successfully"}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+
+    @app.post("/login")
+def login(data: UserLogin):
+    try:
+        response = users_table.get_item(Key={"email": data.email})
+
+        if "Item" not in response:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        user = response["Item"]
+
+        if not verify_password(data.password, user["password"]):
+            raise HTTPException(status_code=401, detail="Invalid password")
+
+        return {
+            "message": "Login successful",
+            "user": {
+                "email": user["email"],
+                "name": user["name"],
+                "role": user["role"],
+            }
+        }
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
