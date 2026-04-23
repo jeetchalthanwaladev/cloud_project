@@ -29,7 +29,8 @@ const Auth = ({ onLoginSuccess }) => {
     }
 
     try {
-      const res = await fetch(`${process.env.REACT_APP_API_URL || ''}/signup`, {
+      const baseUrl = (process.env.REACT_APP_API_URL || '').replace(/\/+$/, '');
+      const res = await fetch(`${baseUrl}/signup`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -62,7 +63,8 @@ const Auth = ({ onLoginSuccess }) => {
     }
 
     try {
-      const res = await fetch(`${process.env.REACT_APP_API_URL || ''}/login`, {
+      const baseUrl = (process.env.REACT_APP_API_URL || '').replace(/\/+$/, '');
+      const res = await fetch(`${baseUrl}/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -1,3 +1,4 @@
+import logging
 import os
 import uuid
 from datetime import datetime, timezone
@@ -13,6 +14,9 @@ from pydantic import BaseModel
 # -------------------------
 # APP CONFIG
 # -------------------------
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 app = FastAPI(title="Learning Platform API")
 
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
@@ -81,12 +85,17 @@ def health():
 
 @app.post("/signup")
 def signup(user: UserSignup):
+    logger.info(f"Signup attempt for email: {user.email}")
     try:
         response = users_table.get_item(Key={"email": user.email})
         if "Item" in response:
+            logger.warning(f"Signup failed: User {user.email} already exists")
             raise HTTPException(status_code=400, detail="User already exists")
 
-        hashed_password = pwd_context.hash(user.password)
+        # Trim password to 72 characters to prevent bcrypt exception
+        trimmed_password = user.password[:72]
+        hashed_password = pwd_context.hash(trimmed_password)
+        
         item = {
             "email": user.email,
             "name": user.name,
@@ -95,24 +104,33 @@ def signup(user: UserSignup):
             "created_at": datetime.now(timezone.utc).isoformat()
         }
         users_table.put_item(Item=item)
+        logger.info(f"User {user.email} created successfully")
         return {"message": "Account created successfully"}
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Signup error for {user.email}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.post("/login")
 def login(user: UserLogin):
+    logger.info(f"Login attempt for email: {user.email}")
     try:
         response = users_table.get_item(Key={"email": user.email})
         if "Item" not in response:
+            logger.warning(f"Login failed: User {user.email} not found")
             raise HTTPException(status_code=404, detail="User not found")
 
         item = response["Item"]
-        if not pwd_context.verify(user.password, item["password"]):
+        
+        # Trim password to 72 characters for bcrypt verification
+        trimmed_password = user.password[:72]
+        if not pwd_context.verify(trimmed_password, item["password"]):
+            logger.warning(f"Login failed: Invalid credentials for {user.email}")
             raise HTTPException(status_code=401, detail="Invalid credentials")
 
+        logger.info(f"User {user.email} logged in successfully")
         return {
             "message": "Login successful",
             "user": {
@@ -124,7 +142,8 @@ def login(user: UserLogin):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Login error for {user.email}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.get("/courses")
